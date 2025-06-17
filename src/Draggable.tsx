@@ -1,99 +1,176 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from "react";
 
-const DraggableBox: React.FC = () => {
-  const backgroundElement = useRef<HTMLDivElement | null>(null);
-  const boxRef = useRef<HTMLDivElement | null>(null);
-  const [position, setPosition] = useState({ x: 100, y: 100 });
+class DraggableBoxDiv {
+  box: HTMLDivElement;
+  container: HTMLDivElement;
+  updatePositionCallback: (x: number, y: number) => void;
+  offset = { x: 0, y: 0 };
+  isDragging = false;
 
-  const offsetRef = useRef({ x: 0, y: 0 });
-  const isDragging = useRef(false); 
+  constructor(
+    container: HTMLDivElement,
+    updatePositionCallback: (x: number, y: number) => void,
+    initialX: number,
+    initialY: number,
+    boxClassName: string
+  ) {
+    this.container = container;
+    this.updatePositionCallback = updatePositionCallback;
 
-  const updatePosition = (x: number, y: number) => {
-    if (boxRef.current && backgroundElement.current) {
-      const bgRect = backgroundElement.current.getBoundingClientRect();
-      const maxX = bgRect.width - 50;
-      const maxY = bgRect.height - 50;
+    this.box = document.createElement("div");
+    this.box.className = boxClassName;
 
-      const clampedX = Math.max(0, Math.min(x, maxX));
-      const clampedY = Math.max(0, Math.min(y, maxY));
+    this.container.appendChild(this.box);
 
-      boxRef.current.style.left = `${clampedX}px`;
-      boxRef.current.style.top = `${clampedY}px`;
-      setPosition({ x: clampedX, y: clampedY });
+    this.updatePosition(initialX, initialY);
+
+    this.box.addEventListener("pointerdown", this.onPointerDown);
+    window.addEventListener("pointermove", this.onPointerMove);
+    window.addEventListener("pointerup", this.onPointerUp);
+  }
+
+  updatePosition = (x: number, y: number) => {
+    const containerRect = this.container.getBoundingClientRect();
+    const boxRect = this.box.getBoundingClientRect();
+    const maxX = containerRect.width - boxRect.width;
+    const maxY = containerRect.height - boxRect.height;
+
+    const clampedX = Math.max(0, Math.min(x, maxX));
+    const clampedY = Math.max(0, Math.min(y, maxY));
+
+    this.box.style.left = `${clampedX}px`;
+    this.box.style.top = `${clampedY}px`;
+
+    this.updatePositionCallback(clampedX, clampedY);
+  };
+
+  onPointerDown = (e: PointerEvent) => {
+    e.preventDefault();
+    this.isDragging = true;
+
+    const rect = this.box.getBoundingClientRect();
+    this.offset = {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    };
+
+    this.box.setPointerCapture(e.pointerId);
+  };
+
+  onPointerMove = (e: PointerEvent) => {
+    if (!this.isDragging) return;
+    e.preventDefault();
+
+    const containerRect = this.container.getBoundingClientRect();
+
+    const newX = e.clientX - containerRect.left - this.offset.x;
+    const newY = e.clientY - containerRect.top - this.offset.y;
+
+    this.updatePosition(newX, newY);
+  };
+
+  onPointerUp = (e: PointerEvent) => {
+    if (!this.isDragging) return;
+    e.preventDefault();
+
+    this.isDragging = false;
+    this.box.releasePointerCapture(e.pointerId);
+  };
+
+  remove() {
+    this.box.removeEventListener("pointerdown", this.onPointerDown);
+    window.removeEventListener("pointermove", this.onPointerMove);
+    window.removeEventListener("pointerup", this.onPointerUp);
+
+    if (this.container.contains(this.box)) {
+      this.container.removeChild(this.box);
     }
-  };
+  }
+}
 
-  const onPointerDown = (e: PointerEvent) => {
-    if (boxRef.current) {
-      isDragging.current = true; 
-      const rect = boxRef.current.getBoundingClientRect();
-      offsetRef.current = {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
-      };
-      boxRef.current.setPointerCapture(e.pointerId);
-    }
-  };
+const DraggableBoxes: React.FC = () => {
+  const containerRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const draggableBoxesRefs = useRef<DraggableBoxDiv[][]>([]); 
 
-  const onPointerMove = (e: PointerEvent) => {
-    if (isDragging.current && boxRef.current && backgroundElement.current) {
-      const newX = e.clientX - offsetRef.current.x;
-      const newY = e.clientY - offsetRef.current.y;
-      updatePosition(newX, newY);
-    }
-  };
+  const [positions, setPositions] = useState<
+    { x: number; y: number }[][]
+  >(
+    Array(4)
+      .fill(0)
+      .map(() => Array(4).fill({ x: 0, y: 0 }))
+  );
 
-  const onPointerUp = (e: PointerEvent) => {
-    if (boxRef.current) {
-      isDragging.current = false; 
-      boxRef.current.releasePointerCapture(e.pointerId);
-    }
-  };
+ useEffect(() => {
+    draggableBoxesRefs.current = [];
 
-  const onWindowResize = () => {
-    updatePosition(position.x, position.y);
-  };
+    containerRefs.current.forEach((container, quadrantIndex) => {
+      if (!container) return;
 
-  useEffect(() => {
-    const background = document.createElement('div');
-    background.style.position = 'fixed';
-    background.style.top = '0';
-    background.style.left = '0';
-    background.style.width = '100vw';
-    background.style.height = '100vh';
-    background.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-    background.style.overflow = 'hidden';
+      draggableBoxesRefs.current[quadrantIndex] = [];
 
-    document.body.appendChild(background);
-    backgroundElement.current = background;
+      for (let boxIndex = 0; boxIndex < 4; boxIndex++) {
+        const initialX = 20 + boxIndex * 60;
+        const initialY = 20 + boxIndex * 60;
 
-    const box = document.createElement('div');
-    box.style.position = 'absolute';
-    box.style.width = '50px';
-    box.style.height = '50px';
-    box.style.backgroundColor = 'blue';
-    box.style.borderRadius = '5px';
-    box.style.touchAction = 'none'; 
-    background.appendChild(box);
-    boxRef.current = box;
+        const boxClass =
+          boxIndex === 3 ? "draggable-box special-box" : "draggable-box";
 
-    updatePosition(position.x, position.y);
+        const box = new DraggableBoxDiv(
+          container,
+          (x, y) => {
+            setPositions((prev) => {
+              const newPositions = prev.map((arr) => arr.slice());
+              newPositions[quadrantIndex][boxIndex] = { x, y };
+              return newPositions;
+            });
+          },
+          initialX,
+          initialY,
+          boxClass
+        );
 
-    box.addEventListener('pointerdown', onPointerDown);
-    window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', onPointerUp);
-    window.addEventListener('resize', onWindowResize);
+        draggableBoxesRefs.current[quadrantIndex].push(box);
+      }
+    });
+
+
+    const onResize = () => {
+      draggableBoxesRefs.current.forEach((boxes, qIndex) => {
+        boxes.forEach((box) => {
+          const rect = box.box.getBoundingClientRect();
+          const containerRect = box.container.getBoundingClientRect();
+          const relativeX = rect.left - containerRect.left;
+          const relativeY = rect.top - containerRect.top;
+          box.updatePosition(relativeX, relativeY);
+        });
+      });
+    };
+
+    window.addEventListener("resize", onResize);
 
     return () => {
-      box.removeEventListener('pointerdown', onPointerDown);
-      window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerup', onPointerUp);
-      window.removeEventListener('resize', onWindowResize);
-      document.body.removeChild(background);
+      window.removeEventListener("resize", onResize);
+
+      draggableBoxesRefs.current.forEach((boxes) =>
+        boxes.forEach((box) => box.remove())
+      );
     };
   }, []);
 
-  return null;
+  return (
+    <div className="main-container">
+      {[0, 1, 2, 3].map((q) => (
+  <div
+    key={q}
+    className="quadrant"
+    ref={(el) => {
+      containerRefs.current[q] = el;
+    }}
+  />
+))}
+
+    </div>
+  );
 };
 
-export default DraggableBox;
+export default DraggableBoxes;
